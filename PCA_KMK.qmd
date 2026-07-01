@@ -1,0 +1,450 @@
+---
+title: "PCA and K-means clustering"
+subtitle: "Helping a B2B AI company enterpret customer segments"
+author: "Simon Eriksson"
+format: pdf
+toc: true
+editor: visual
+date: last-modified
+titlepage: true
+execute:
+  warning: false
+  message: false
+---
+
+The following analysis is of a multinational industrial company. The company is moving from only selling stand alone industrial equipment to offering AI services in as a complement (B2B). To remain competitive the company wants to better understand its current and potential customers.
+
+I will analyze customer data to identify meaningful customer segments, understand underlying patterns in the data, support decisions about future digital service offerings as well as hopefully recommend which customer segment to prioritize.
+
+The company is of course interested in customers that may be suitable for AI services, predictive maintenance, performance optimization and integrated service contracts
+
+{{< pagebreak >}}
+
+- x1 – Annual Equipment Spend: The total amount of money a company spends on industrial equipment each year.
+
+- x2 – AI Readiness: The company’s level of preparation for using artificial intelligence, including technology, systems, and employee skills.
+
+- x3 – Platform Adoption: The extent to which a company uses and integrates digital platforms in its operations.
+
+- x4 – Service Contract Preference: The preference for using service contracts instead of buying products directly.
+
+- x5 – Predictive Maintenance Adoption: The level of use of predictive maintenance solutions to prevent equipment failures before they happen.
+
+- x6 – Outcome Orientation: The company’s focus on achieving business results such as higher efficiency, better performance, and reduced downtime.
+
+- x7 – Digital Maturity: The development level of the company’s digital processes, systems, and IT infrastructure.
+
+- x8 – Data Share Willingness: The willingness of a company to share operational and performance data with suppliers or partners.
+
+- x9 – Customization Demand: The need for products or services that are specially adapted to meet specific customer requirements.
+
+- x10 – Innovation Partner Score: The degree to which a company is open to collaborating with partners in developing new products or services.
+
+- x11-x13: Unknown
+
+{{< pagebreak >}}
+
+```{r}
+library(readr)
+library(tidyverse)
+library(dlookr)
+library(flextable)
+library(tinytex)
+library(factoextra)
+
+set.seed(1)
+
+set_flextable_defaults(
+  font.size = 8,
+  theme_fun = theme_vanilla,
+  padding = 6,
+  border.color = "purple"
+)
+
+my_flextable <- function(data) {
+  table <- flextable(data)
+  table <- fit_to_width(table, max_width = 5.5)
+  return(table)
+}
+```
+
+```{r}
+business_data <- read_delim("Business_data.csv",
+                            delim = ";",
+                            escape_double = FALSE,
+                            locale = locale(decimal_mark = ","),
+                            trim_ws = TRUE)
+
+# Flextable for diagnosis data
+my_flextable(diagnose(business_data))
+
+# Flextable for ranges
+ranges <- as.data.frame(lapply(business_data, FUN = range))
+my_flextable(ranges)
+
+# Total range and number of rows
+min(ranges[1, ])
+max(ranges[2, ])
+nrow(business_data)
+```
+
+## Data Preparation
+
+As we can see, the data is pretty boring and consist exclusively of 200 rows and 13 column of doubles ranging from -15.37 to 18.62. Since we are going to do PCA and K-means clustering (KMC) we first need to standardize the data. Not standardizing would result in the model valuing variables containing values from a wider range higher. E.g if we were to compare yearly spend on AI infrastructure with days since last investment, the model would rely almost entirely of the variation in yearly spend while creating the principal component.
+
+```{r}
+
+business_data <- as.data.frame(scale(business_data))
+
+# Making sure scaling was performed correctly
+flextable(as.data.frame(t(round(sapply(business_data, FUN = mean), 
+                                digits = 2))))
+
+
+```
+
+## PCA
+
+I now want to run a PCA with hopes of reducing the dimensions of the dataset.
+
+```{r}
+# A simple command to make 13 PCs
+pca1 <- princomp(business_data)
+
+screeplot(pca1,
+          type = "lines",
+          main = "PCA1")+
+  abline(h=1, col = "purple")
+
+fviz_eig(pca1,
+         addlabels = TRUE,
+         ylab = "Percentage of explained variance",
+         barfill = "purple",
+         barcolor = "black")
+```
+
+Ideally, we should be left with no more than three dominant principal components. However only selecting three PCS would only explain 53.25% of the variation in the data. Therefore i decide to select a fourth PC to bump my % of var explained up to 65.3%. Not ideal but the relative trade off for selecting a fourth component is small. Also, selecting a 6th component would not be ideal since the 5th component only adds about 7.6% variance explanation.
+
+```{r}
+explanations = c(
+  "Annual spend",
+  "AI readiness",
+  "Platform adoption",
+  "Service preference",
+  "Predictive maintenance",
+  "Outcome orientation",
+  "Digital maturity",
+  "Data sharing",
+  "Customization demand",
+  "Innovation partnership",
+  "Unknown 1",
+  "Unknown 2",
+  "Unknown 3"
+)
+
+loadings <- as.data.frame((pca1$loadings[ ,1:4]))
+loadings_rounded <- as.data.frame(round((pca1$loadings[ ,1:4]), digits = 2))
+
+loadings_rounded <- cbind(explanations, loadings_rounded)
+
+my_flextable(loadings_rounded)
+```
+
+As we can see we now have the different loadings for each PC 1-4. Let's examine them one by one and try to get a grasp of what the different PCs may represent in business terms.
+
+### PC1
+
+Most positive contributions
+
+1.  **Unknown 3 (0.41)**
+
+2.  **Unknown 1 (0.38)**
+
+3.  **Unknown 2 (0.36)**
+
+4.  **Annual spend (0.32)**
+
+Most negative contributions
+
+1.  **Predictive maintenance (-0.34)**
+
+2.  **AI readiness (-0.25)**
+
+These types of companies generally spend much (on infrastructure?). However they have relatively low predictive maintenance and are generally not ready for AI. I would guess the model has found rigid companies in traditional industries, probably very old companies with high turnovers. An example could be large construction companies or very large steel mills.
+
+### **PC2**
+
+Here we see a strong connection between AI readiness and willingness to cooperate and innovate.
+
+Most positive contributions
+
+1.  **AI readiness (0.39)**
+
+2.  **Innovation partnership (0.36)**
+
+3.  **Unknown 3 (0.36)**
+
+4.  **Unknown 1 (0.30)**
+
+Most negative contributions
+
+1.  **Unknown 2 (-0.41)**
+
+2.  **Data sharing (-0.39)**
+
+These companies are most likely acting in unstable industries in terms of innovation. In other words, being successful these industries are most likely dependent on the level of radical innovation and AI integration you are able to capture. The reason behind the high number for innovation partnership is most likely because joint ventures are necessary to able to innovate radically. The reason for the low data sharing is most likely because the industries are very secretive. An example of companies is biomedical R&D companies, defense companies and aerospace companies. It can also be things such as institutions etc which are very careful on how they share data.
+
+### **PC3**
+
+Here we see a high service preference (valuates long term relations and low initial spend). The platform adoption is also high which indicates a very digitalized company. The digital maturity and outcome orientation is very low.
+
+Most positive contributions
+
+1.  **Service preference (0.38)**
+
+2.  **Platform adoption (0.36)**
+
+3.  **Annual spend (0.26)**
+
+Most negative contributions
+
+1.  **Digital maturity (-0.50)**
+
+2.  **Outcome orientation (-0.34)**
+
+3.  **Customization demand (-0.32)**
+
+These companies rely on an outsourcing model for digital competence. They rather outsource services than develop them themselves in house. Their low digital maturity confirms their low in house expertise. The low outcome orientation and customization demand probably means that they are an ideal organization or an institutional customer. An example is hospitals or schools.
+
+### **PC4**
+
+Here we can see that platform adoption and digital maturity is very high. On the other hand outcome orientation and service preference is very low.
+
+Most positive contributions
+
+1.  **Platform adoption (0.43)**
+
+2.  **Digital maturity (0.36)**
+
+3.  **Customization demand (0.19)**
+
+Most negative contributions
+
+1.  **Outcome orientation (-0.55)**
+
+2.  **Service preference (-0.45)**
+
+3.  **Innovation partnership (-0.28)**
+
+These companies are probably highly innovative and mature in terms of technology whilst at the same time being in a startup phase where everything is developed in house, nothing is outsourced and they are not open for innovation partnerships. These are typical traits of a startup trying to develop a digital product for commercialization or for patenting reasons.
+
+I want to further visualize the different loadings for the PCS.
+
+```{r}
+loadings <- loadings %>% 
+  rename(PC1 = Comp.1,
+         PC2 = Comp.2,
+         PC3 = Comp.3,
+         PC4 = Comp.4)
+
+loadings <- cbind(explanations, loadings)
+
+ggplot(loadings, aes(reorder(explanations, PC1), PC1))+
+  geom_point()+
+  geom_hline(yintercept = 0, linetype = "dashed", color = "purple") +
+  xlab(NULL)+
+  coord_flip()+
+  theme_minimal()
+
+ggplot(loadings, aes(reorder(explanations, PC2), PC2))+
+  geom_point()+
+  geom_hline(yintercept = 0, linetype = "dashed", color = "purple") +
+  xlab(NULL)+
+  coord_flip()+
+  theme_minimal()
+
+ggplot(loadings, aes(reorder(explanations, PC3), PC3))+
+  geom_point()+
+  geom_hline(yintercept = 0, linetype = "dashed", color = "purple") +
+  xlab(NULL)+
+  coord_flip()+
+  theme_minimal()
+
+ggplot(loadings, aes(reorder(explanations, PC4), PC4))+
+  geom_point()+
+  geom_hline(yintercept = 0, linetype = "dashed", color = "purple") +
+  xlab(NULL)+
+  coord_flip()+
+  theme_minimal()
+
+```
+
+## K-Means Clustering
+
+After I've created my 4 PCs i would ideally want to plot out all my data points from my original data on this 4d plane and use K-means Clustering to create clusters of points. However, since i have 4 PCs i can not do that, what i can try to do is plot the points on various 2d graphs and try to visualize where potential clusters would form. I want to start by creating a dataframe containing all of my 200 datapoints and their respective "scores" (combination of PC1-PC4) which determines where that point is.
+
+```{r}
+pca1_scores <- as.data.frame(pca1$scores[, 1:4])
+```
+
+I now want to cluster these observations in the 4d space. This is done with the K-means algorithm. The way this algorithm works is that x clusterpoints are selected randomly in the 4d space. The Euclidean distance is then measured from every point (company) to all of the x randomly selected clusterpoints where after the clusterpoint closest to each company becomes that company's official cluster. The clusterpoint is then moved to the "mean" point in that cluster and the process iterates until it converges. Lets try for some different number of cluster and see how the total SSE (sum of squared error, eg points from company to its clustercenter squared) changes.
+
+```{r}
+# An example of how you can do kmeans on data and what output
+# to expect
+kmeans(pca1_scores,
+       iter.max = 5000,
+       centers = 2,
+       nstart = 50)
+```
+
+Since we generally want to try multiple different centers, there is an automated function that does this as well as calculate the percentage of variance explained for each different cluster amount.
+
+```{r}
+fviz_nbclust(pca1_scores, kmeans, method = "wss",
+             linecolor = "purple") +
+  geom_vline(xintercept = 4, linetype = "dashed", color = "black") +
+  labs(title = "Elbow Method")
+```
+
+I decide to go for 4 clusters, both because the curse flattens out the further down the x axis we go but also because we earlier identified 4 PCS (business characteristics) which then makes it reasonable to be able to categorize my companies based on those 4 business characteristics.
+
+```{r}
+
+final_km <- kmeans(pca1_scores, centers = 4, nstart = 100)
+
+final_km$size
+final_km$centers
+
+# How much of the variance does the clustering catch
+final_km$betweenss/final_km$totss
+```
+
+The centers tell us roughly what types of different customer segments the ml model managed to find. From our PC analysis the following can be said about the different PCs (Comps).
+
+Cluster 4: The Legacy Giant\
+Component 1: 1.68
+
+This is the most distinct value in the table. Since Component 1 is driven by annual equipment spend and size-related variables, this cluster represents the largest customers. These are major companies with substantial budgets that have not yet moved to the forefront regarding AI adoption or modern service models.
+
+Cluster 3: The Secretive Innovator\
+Component 2: 1.88
+
+Component 2 relates specifically to AI readiness and innovation partnerships. This cluster contains the most promising candidates for new AI-driven services. These companies are technologically prepared and willing to collaborate, though their profile suggests they remain protective of their proprietary data.
+
+Cluster 1: Mature In House Expert\
+Component 3: -1.41\
+Component 4: -0.78
+
+Component 3 featured negative loadings for digital maturity and outcome orientation. Because this cluster scores heavily in the negative direction, it represents the inverse: companies with very high digital maturity and a strong focus on business results. These firms tend to develop solutions internally. They generally reject basic service contracts in favor of high-performance systems that deliver measurable efficiency and performance.
+
+Cluster 2: The Outsourced Service User\
+Component 1: -1.26\
+Component 2: -1.24
+
+This group scores low on both size and AI readiness. However, they show positive values for Component 3 (0.63) and Component 4 (0.47), which indicates a preference for standardized platforms and service-based agreements. This cluster likely consists of smaller companies or institutions that prioritize functional reliability and outsourced expertise over building their own technical infrastructure.
+
+Now lets add a row containing in index for each of the 200 observations telling us which cluster the observation belongs to.
+
+```{r}
+business_data$cluster <- factor(final_km$cluster)
+pca1_scores$cluster <- factor(final_km$cluster)
+
+# I want to plot some PCs vs each other and study if i can see patterns in clusters
+ggplot(pca1_scores, aes(Comp.1, Comp.2, color = cluster))+
+  geom_point()+
+  theme_minimal()
+
+ggplot(pca1_scores, aes(Comp.1, Comp.3, color = cluster))+
+  geom_point()+
+  theme_minimal()
+
+ggplot(pca1_scores, aes(Comp.1, Comp.4, color = cluster))+
+  geom_point()+
+  theme_minimal()
+
+ggplot(pca1_scores, aes(Comp.2, Comp.3, color = cluster))+
+  geom_point()+
+  theme_minimal()
+
+ggplot(pca1_scores, aes(Comp.2, Comp.4, color = cluster))+
+  geom_point()+
+  theme_minimal()
+
+ggplot(pca1_scores, aes(Comp.3, Comp.4, color = cluster))+
+  geom_point()+
+  theme_minimal()
+```
+
+Our betweenss/totalss ration was 41.3% which means that the four clusters explain a bit less than half of the total variance. This only indicates moderate between segments, therefore conclusions about individual clusters should only be treated carefully.
+
+In all what has happened is that my 4 PCAs helped me reduce the dimensions of my initial data while still explaining 65.3% of the variance in the data. Regarding clustering my hypothesis was that the data spread out in the 4d PC space was not perfectly spread and that they were actually clustered. K-means clustering was able to correctly identify these clusters. This assisted me in analyzing the data and helped me draw more accurate conclusions on what types of customers to contact for what type of service. To simplify exactly what each cluster means i am going to take the mean for all values in every cluster and plot them.
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# 1. Calculate the means for each cluster
+cluster_means <- pca1_scores %>%
+  group_by(cluster) %>%
+  summarise(across(c(Comp.1, Comp.2, Comp.3, Comp.4), mean))
+
+# 2. Reshape to long format for plotting
+cluster_means_long <- cluster_means %>%
+  pivot_longer(cols = starts_with("Comp"), 
+               names_to = "Principal_Component", 
+               values_to = "Mean_Score")
+
+# 3. Create the plot
+ggplot(cluster_means_long, aes(x = Principal_Component, y = Mean_Score, fill = cluster)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.5) +
+  scale_fill_brewer(palette = "Set1") +
+  theme_minimal() +
+  labs(title = "Cluster Profiles: Mean Scores by Principal Component",
+       subtitle = "Comparing how each segment performs across the 4 dimensions",
+       x = "Principal Component",
+       y = "Mean PCA Score",
+       fill = "Cluster")
+```
+
+The 4 different clusters vary vastly in terms of different business needs and business conditions. Examining them one by one we can see:
+
+### Cluster Enterpretation and Customer Targeting
+
+Cluster 1: Negative PC1, Positive PC2, Negative PC3 and Negative PC4. Conclusions? This cluster is driven primarily by a strongly negative PC3, indicating high digital maturity, strong outcome orientation, and above-average customization demand, paired with low platform adoption and low annual spend. The moderately positive PC2 also points to decent AI readiness and openness to innovation partnerships. However, these companies appear somewhat guarded with data sharing. The are appealing due to their outcome focus and AI readiness, but harder to convert given their in house preference and limited spend. Therefore they are a moderately good customer for the AI service offerings.
+
+Cluster 2: Negative PC1, Negative PC2, Positive PC3, Positive PC4. Conclusions? The second clusters is companies who want plug and play digital solutions and lack internal expertise, they prefer long term contracts and most likely have a lot of cash to pay up front. Therefore they are a strong candidate for AI service contracts.
+
+Cluster 3: Negative PC1, Positive PC2, Positive PC3, Positive PC4. Conclusions? The third clusters is highly secretive innovators, many startups, they tend to be willing to outsource much of the work.Therefore they are a possible candidate for AI service contracts.
+
+Cluster 4: Positive PC1, Negative PC2, Positive PC3, Negative PC4. Conclusions? The fourth clusters consists of old companies who are very rigid and have been in the game for a long time. These companies should not be targeted with any AI solutions, only traditional machinery. They are prone to outsourcing but most likely not for innovation but rather for installations etc. Therefore they are a weak candidate for AI service contracts but a good customer in terms of traditional sales.
+
+### Advantages and disadvantages of PCA
+
+The advantage of PCA in this scenario is that we manage to quantify and reduce a rather complex dataset that really doesn't tell us ANYTHING from the bat. An untrained eye would not be able to extract much information from the raw csv file. The advantage of dimensionality reduction is that we can find underlying patterns in the data to get a better understanding of how our customers differ. The disadvantage is that we lose about 30% of our variance when we reduce dimensions which means we can not fully plot out all points accurately. Also PCA has a hard time catching exponential relationships.
+
+### Advantages and disadvantages of K-means Clustering
+
+Advantages is that it provides clear labels on each customers which gives e.g the sales team a very clear picture of whom to contact regarding what type of product. It is also very fast and iterates much which minimizes risk for a bad seed messing up our clustering. The downside is the subjectivity. There is no clear "best amount of clusters" which at least i would have preferred. It also forces a customer into a group based on the number of groups we have identified. There could for an example be a company who is 50/50 innovative and rigid but it does not capture this and therefore wrongly classifies half of the company. K-means also only groups clusters in spheres. There could for example be clear trends in cylindrical customer segments etc.
+
+### X11-X13
+
+**x11 – Organizational Complexity / Headcount**
+
+- **Reasoning:** It correlates strongly with **Annual Spend** in PC1 (0.38) and **Service Preference** in PC3 (0.22).
+
+- **Interpretation:** This likely represents the size of the workforce or the complexity of the organization. Larger, more complex companies spend more and are more likely to buy services to manage that complexity.
+
+**x12 – Operational Secrecy / Traditionalism**
+
+- **Reasoning:** It is high in PC1 (0.36) but has a very strong negative correlation in PC2 (-0.41), where **Data Sharing** is also negative (-0.39).
+
+- **Interpretation:** This likely represents a measure of "Legacy" or "Internal Focus." High values indicate large, traditional companies that are very protective of their internal processes and are the least willing to share data or adopt open innovation.
+
+**x13 – Physical Asset Base / Market Reach**
+
+- **Reasoning:** This is the strongest driver of PC1 (0.41) and also moves with **AI Readiness** in PC2 (0.36).
+
+- **Interpretation:** This likely represents the total amount of physical machinery or the number of global sites. It tracks with high spend (PC1) but also identifies the companies that have enough scale to make AI investments worthwhile (PC2).
