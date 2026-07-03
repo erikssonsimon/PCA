@@ -1,6 +1,6 @@
 # PCA & K-Means Clustering - Customer Segmentation for B2B AI Services
 
-A classical unsupervised learning project :D Im using Principal Component Analysis (PCA) and K-means clustering to identify customer segments and recommend target markets for a company, none of the data is confidential. 
+A classical unsupervised learning project IN R :D Im using Principal Component Analysis (PCA) and K-means clustering to identify customer segments and recommend target markets for a company, none of the data is confidential. 
 
 ## Methods
 - Data standardization
